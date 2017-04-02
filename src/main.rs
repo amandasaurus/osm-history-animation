@@ -96,7 +96,7 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) ->
     let mut first_frame_no = std::u32::MAX;
     let mut last_frame_no = 0;
 
-    let mut num_nodes = 0;
+    let mut num_nodes: u64 = 0;
     for node in node_reader {
         if let (Some(lat), Some(lon)) = (node.lat, node.lon) {
             if lat > top || lat < bottom || lon > right || lon < left {
