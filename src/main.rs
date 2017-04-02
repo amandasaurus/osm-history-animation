@@ -185,6 +185,8 @@ fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f3
 
     let i = y * width + x;
 
+    assert!(i < width*height, "{}L{}, lat = {} lon = {} width = {} height = {} bbox = {:?} x = {} y = {} i = {}", file!(), line!(), lat, lon, width, height, bbox, x, y, i);
+
     i
 }
 
