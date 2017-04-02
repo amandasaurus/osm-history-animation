@@ -7,3 +7,4 @@ authors = ["Rory McCann <rory@technomancy.org>"]
 osmio = { path = "../osmio/" }
 image = "0.12"
 gif = "0.9"
+clap = "2"

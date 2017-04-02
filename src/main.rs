@@ -1,11 +1,13 @@
 extern crate osmio;
 extern crate image;
 extern crate gif;
+extern crate clap;
+
+use clap::{Arg, App};
 
 use std::fs;
 use osmio::OSMReader;
 use osmio::pbf::PBFReader;
-use std::env::args;
 use std::io::BufReader;
 use std::collections::{HashMap, HashSet};
 
@@ -155,10 +157,21 @@ fn create_equirectangular_map(frames: Frames, output_image_filename: &str, heigh
 }
 
 fn main() {
-    let input_filename = args().nth(1).expect("Missing inputfilename");
-    let output_image = args().nth(2).expect("Missing output image");
-    let height: u32 = args().nth(3).expect("need to provide a height").parse().expect("Not an integer");
-    let frames_per_sec: u32 = args().nth(4).expect("need to provide a speed").parse().expect("Not an integer");
+    let matches = App::new("osm-history-animation")
+                          .arg(Arg::with_name("pbf_file").long("pbf-file").short("i")
+                               .takes_value(true))
+                          .arg(Arg::with_name("output_image") .long("output-image").short("o")
+                               .takes_value(true))
+                          .arg(Arg::with_name("height") .long("height").short("h")
+                               .takes_value(true))
+                          .arg(Arg::with_name("spf") .long("sec-per-frame").short("s")
+                               .takes_value(true))
+                          .get_matches();
+
+    let input_filename = matches.value_of("pbf_file").unwrap();
+    let output_image = matches.value_of("output_image").unwrap();
+    let height: u32 = matches.value_of("height").unwrap().parse().unwrap();
+    let frames_per_sec: u32 = matches.value_of("spf").unwrap().parse().unwrap();
 
     let bbox = [-13.1, 49.28, -3.26, 56.69];
 
