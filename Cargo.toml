@@ -1,0 +1,9 @@
+[package]
+name = "osm-history-animation"
+version = "0.1.0"
+authors = ["Rory McCann <rory@technomancy.org>"]
+
+[dependencies]
+osmio = { path = "../osmio/" }
+image = "0.12"
+gif = "0.9"
