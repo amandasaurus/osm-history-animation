@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Rory McCann <rory@technomancy.org>"]
 
 [dependencies]
-osmio = { path = "../osmio/" }
+osmio = { git = "https://github.com/rory/osmio" }
 image = "0.12"
-gif = { path = "../image-gif/" }
+gif = { git = "https://github.com/rory/image-gif" }
 clap = "2"
