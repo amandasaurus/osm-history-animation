@@ -208,7 +208,11 @@ fn create_equirectangular_map(frames: Frames, output_image_filename: &str, heigh
 
     for (frame_no, pixels) in frames.into_iter() {
         for i in pixels {
-            image[i as usize] = Some(frame_no);
+            // FIXME sometimes the value is invalid
+            //assert!(i < width*height, "{} L{}, width = {} height = {} i = {}", file!(), line!(), width, height, i);
+            if i < width*height {
+                image[i as usize] = Some(frame_no);
+            }
         }
 
         let mut pixels = Vec::with_capacity(image.len() * 4);
