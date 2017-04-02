@@ -6,5 +6,5 @@ authors = ["Rory McCann <rory@technomancy.org>"]
 [dependencies]
 osmio = { path = "../osmio/" }
 image = "0.12"
-gif = "0.9"
+gif = { path = "../image-gif/" }
 clap = "2"
