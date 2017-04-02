@@ -3,7 +3,7 @@ extern crate image;
 extern crate gif;
 extern crate clap;
 
-use clap::{Arg, App};
+use clap::{Arg, App, AppSettings};
 
 use std::fs;
 use osmio::OSMReader;
@@ -64,13 +64,15 @@ impl ColourRamp {
     }
 
     fn index_for_age(&self, age: Option<u32>) -> u8 {
-        match age {
+        let res = match age {
             None => 0,
             Some(age) => match self.steps.iter().position(|&(x, _)| x == age) {
                 None => 0,
-                Some(i) => i as u8,
+                Some(i) => (i+1) as u8,
             }
-        }
+        };
+        //println!("Age of {:?} got a res of {}", age, res);
+        res
     }
 }
 
@@ -79,8 +81,6 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) ->
     let mut node_reader = PBFReader::new(file);
     let node_reader = node_reader.nodes();
     
-    println!("Parsing {}", filename);
-
     let mut results: HashMap<u32, HashSet<u32>> = HashMap::new();
 
     let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
@@ -183,7 +183,6 @@ fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f3
     let x = ((lon/bbox_width)*(width as f32)) as u32;
     let y = ((lat/bbox_height)*(height as f32)) as u32;
 
-    //println!("lat = {} lon = {} x = {} y = {} y*width+x = {}", lat, lon, x, y, y*width+x);
     let i = y * width + x;
 
     i
@@ -200,6 +199,8 @@ fn create_equirectangular_map(frames: Frames, output_image_filename: &str, heigh
     // FIXME change width/height to u16?
     let mut encoder = gif::Encoder::new(&mut output_file, width as u16, height as u16, &[]).expect("Couldn't create encoder");
     encoder.set(gif::Repeat::Infinite).expect("Couldn't get inf repeat");
+
+    // TODO have a global palette
 
     let mut image = vec![None; (width*height) as usize];
 
@@ -242,7 +243,8 @@ fn main() {
                                .takes_value(true))
                           .arg(Arg::with_name("save-intermediate").long("save-intermediate"))
                           .arg(Arg::with_name("load-intermediate").long("load-intermediate"))
-                          .arg(Arg::with_name("bbox").long("bbox"))
+                          .arg(Arg::with_name("bbox").long("bbox").takes_value(true).short("b"))
+                          .setting(AppSettings::AllowLeadingHyphen)
                           .get_matches();
 
     let input_filename = matches.value_of("input").unwrap();
@@ -258,14 +260,11 @@ fn main() {
         }
     };
 
-    //let bbox = [-13.1, 49.28, -3.26, 56.69];
-
-
     let frames = if matches.is_present("load-intermediate") {
         println!("Reading frames from {}", input_filename);
         read_frames(&input_filename)
     } else {
-        println!("Reading frames from {}", input_filename);
+        println!("Reading PBF file {}", input_filename);
         read_pbf(&input_filename, height, frames_per_sec, &bbox)
     };
 
