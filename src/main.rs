@@ -8,15 +8,73 @@ use clap::{Arg, App};
 use std::fs;
 use osmio::OSMReader;
 use osmio::pbf::PBFReader;
-use std::io::BufReader;
+use std::io::{Read, Write, BufReader, BufRead, BufWriter};
 use std::collections::{HashMap, HashSet};
 
 use gif::SetParameter;
 
 type Frames = Vec<(u32, Vec<u32>)>;
 
+struct ColourRamp {
+    empty_colour: (u8, u8, u8),
+    steps: Vec<(u32, (u8, u8, u8))>,
+}
 
-fn read_file(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) -> Frames {
+impl ColourRamp {
+    fn new_from_filename(filename: &str) -> Self {
+        let mut contents = String::new();
+        let mut file = fs::File::open(filename).unwrap();
+        file.read_to_string(&mut contents).expect("Couldn't read colour ramp file");
+        Self::new_from_text(&contents)
+
+    }
+    fn new_from_text(source: &str) -> Self {
+        let lines: Vec<_> = source.lines().collect();
+        let empty_vec = lines[0].split(",").filter_map(|x| x.parse::<u8>().ok()).take(3).collect::<Vec<_>>();
+        let empty = (empty_vec[0], empty_vec[1], empty_vec[2]);
+
+        let mut steps = Vec::new();
+        for line in lines.iter().skip(1) {
+            let line = line.split(",").filter_map(|x| x.parse::<u32>().ok()).take(4).collect::<Vec<_>>();
+            let age = line[0];
+            let colour = (line[1] as u8, line[2] as u8, line[3] as u8);
+            steps.push((age, colour));
+        }
+
+        if steps.len() > 254 {
+            panic!("Too many steps");
+        }
+
+        ColourRamp{ empty_colour: empty, steps: steps }
+    }
+
+    fn palette(&self) -> Vec<u8> {
+        let mut results = Vec::with_capacity((self.steps.len()+1)*3);
+        results.push(self.empty_colour.0);
+        results.push(self.empty_colour.1);
+        results.push(self.empty_colour.2);
+
+        for &(_, (r, g, b)) in self.steps.iter() {
+            results.push(r);
+            results.push(g);
+            results.push(b);
+        }
+
+        results
+    }
+
+    fn index_for_age(&self, age: Option<u32>) -> u8 {
+        match age {
+            None => 0,
+            Some(age) => match self.steps.iter().position(|&(x, _)| x == age) {
+                None => 0,
+                Some(i) => i as u8,
+            }
+        }
+    }
+}
+
+fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) -> Frames {
     let file = BufReader::new(fs::File::open(&filename).unwrap());
     let mut node_reader = PBFReader::new(file);
     let node_reader = node_reader.nodes();
@@ -87,19 +145,30 @@ fn read_file(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) -
     sorted_results
 }
 
-#[inline(always)]
-fn age_to_colour(age: &Option<u32>) -> [u8; 4] {
-    match *age {
-        None => [0, 0, 0, 0xff],
-        Some(age) => {
-            let age = age * 3;
-            if age > 255 {
-                [0, 0, 0, 0xff]
-            } else {
-                [(255 - age) as u8, 0, 0, 0xff]
-            }
+fn write_frames(frames: Frames, filename: &str) {
+    let mut file = BufWriter::new(fs::File::create(&filename).unwrap());
+    for (frame_no, pixels) in frames.into_iter() {
+        write!(file, "{},", frame_no).unwrap();
+        for p in pixels {
+            write!(file, "{},", p).unwrap();
         }
+        write!(file, "\n").unwrap()
     }
+}
+
+fn read_frames(filename: &str) -> Frames {
+    let file = BufReader::new(fs::File::open(&filename).unwrap());
+    let mut results = Frames::new();
+
+    for line in file.lines() {
+        let line = line.unwrap();
+        let mut nums: Vec<u32> = line.split(",").filter_map(|s| s.parse().ok()).collect();
+        let frame_no = nums.remove(0);
+        let pixels = nums;
+        results.push((frame_no, pixels))
+    }
+
+    results
 }
 
 fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f32; 4]) -> u32 {
@@ -120,7 +189,7 @@ fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f3
     i
 }
 
-fn create_equirectangular_map(frames: Frames, output_image_filename: &str, height: u32, bbox: &[f32; 4]) {
+fn create_equirectangular_map(frames: Frames, output_image_filename: &str, height: u32, bbox: &[f32; 4], colour_ramp: &ColourRamp) {
     let mut output_file = fs::File::create(output_image_filename).expect("Can't create image");
 
     let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
@@ -141,16 +210,19 @@ fn create_equirectangular_map(frames: Frames, output_image_filename: &str, heigh
 
         let mut pixels = Vec::with_capacity(image.len() * 4);
         for p in image.iter().cloned() {
-            pixels.extend(age_to_colour(&p.clone()).iter());
+            let index = colour_ramp.index_for_age(p.map(|t| frame_no - t));
+            pixels.push(index);
         }
 
-        let mut frame = gif::Frame::from_rgba(width as u16, height as u16, pixels.as_mut_slice());
+        let mut frame = gif::Frame::from_palette_pixels(width as u16, height as u16, &colour_ramp.palette(), pixels.as_mut_slice());
         // 30 fps, and delay is in units of 10ms.
         frame.delay = 100 / 30;
 
         encoder.write_frame(&frame).expect("Couldn't write frame");
 
-        println!("Wrote frame {}", frame_no);
+        if frame_no % 30 == 0 {
+            println!("Wrote frame {}", frame_no);
+        }
 
     }
 
@@ -158,28 +230,52 @@ fn create_equirectangular_map(frames: Frames, output_image_filename: &str, heigh
 
 fn main() {
     let matches = App::new("osm-history-animation")
-                          .arg(Arg::with_name("pbf_file").long("pbf-file").short("i")
+                          .arg(Arg::with_name("input").long("input").short("i")
                                .takes_value(true))
-                          .arg(Arg::with_name("output_image") .long("output-image").short("o")
+                          .arg(Arg::with_name("output") .long("output").short("o")
                                .takes_value(true))
                           .arg(Arg::with_name("height") .long("height").short("h")
                                .takes_value(true))
                           .arg(Arg::with_name("spf") .long("sec-per-frame").short("s")
                                .takes_value(true))
+                          .arg(Arg::with_name("colour_ramp") .long("colour-ramp")
+                               .takes_value(true))
+                          .arg(Arg::with_name("save-intermediate").long("save-intermediate"))
+                          .arg(Arg::with_name("load-intermediate").long("load-intermediate"))
+                          .arg(Arg::with_name("bbox").long("bbox"))
                           .get_matches();
 
-    let input_filename = matches.value_of("pbf_file").unwrap();
-    let output_image = matches.value_of("output_image").unwrap();
+    let input_filename = matches.value_of("input").unwrap();
+    let output_filename = matches.value_of("output").unwrap();
     let height: u32 = matches.value_of("height").unwrap().parse().unwrap();
     let frames_per_sec: u32 = matches.value_of("spf").unwrap().parse().unwrap();
 
-    let bbox = [-13.1, 49.28, -3.26, 56.69];
+    let bbox = match matches.value_of("bbox") {
+        None => [-180., -90., 180., 90.],
+        Some(text) => {
+            let coords: Vec<f32> = text.split(",").map(|x| x.parse().unwrap() ).collect();
+            [coords[0], coords[1], coords[2], coords[3]]
+        }
+    };
 
-    let frames = read_file(&input_filename, height, frames_per_sec, &bbox);
+    //let bbox = [-13.1, 49.28, -3.26, 56.69];
 
-    println!("Creating image {}", output_image);
 
-    create_equirectangular_map(frames, &output_image, height, &bbox);
+    let frames = if matches.is_present("load-intermediate") {
+        println!("Reading frames from {}", input_filename);
+        read_frames(&input_filename)
+    } else {
+        println!("Reading frames from {}", input_filename);
+        read_pbf(&input_filename, height, frames_per_sec, &bbox)
+    };
 
+    if matches.is_present("save-intermediate") {
+        println!("Saving frame details to {}", output_filename);
+        write_frames(frames, &output_filename);
+    } else {
+        let colour_ramp = ColourRamp::new_from_filename(matches.value_of("colour_ramp").unwrap());
+        println!("Creating image {}", output_filename);
+        create_equirectangular_map(frames, &output_filename, height, &bbox, &colour_ramp);
+    }
     println!("\nFinished");
 }
