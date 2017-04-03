@@ -9,11 +9,12 @@ use std::fs;
 use osmio::OSMReader;
 use osmio::pbf::PBFReader;
 use std::io::{Read, Write, BufReader, BufRead, BufWriter};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use gif::SetParameter;
 
-type Frames = Vec<(u32, Vec<u32>)>;
+// (frame_no, (pixel_index, num_changes))
+type Frames = Vec<(u32, Vec<(u32, u16)>)>;
 
 struct ColourRamp {
     empty_colour: (u8, u8, u8),
@@ -63,16 +64,21 @@ impl ColourRamp {
         results
     }
 
-    fn index_for_age(&self, age: Option<u32>) -> u8 {
-        let res = match age {
+    fn index_for_magnitude(&self, magnitude: Option<u32>) -> u8 {
+        match magnitude {
             None => 0,
-            Some(age) => match self.steps.iter().position(|&(x, _)| x == age) {
-                None => 0,
-                Some(i) => (i+1) as u8,
-            }
-        };
-        //println!("Age of {:?} got a res of {}", age, res);
-        res
+            Some(magnitude) => {
+                if magnitude > 255 {
+                    1
+                } else {
+                    (255 - magnitude) as u8
+                }
+            },
+            //Some(age) => match self.steps.iter().position(|&(x, _)| x == age) {
+            //    None => 0,
+            //    Some(i) => (i+1) as u8,
+            //}
+        }
     }
 }
 
@@ -81,7 +87,7 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) ->
     let mut node_reader = PBFReader::new(file);
     let node_reader = node_reader.nodes();
     
-    let mut results: HashMap<u32, HashSet<u32>> = HashMap::new();
+    let mut results: HashMap<u32, HashMap<u32, u16>> = HashMap::new();
 
     let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
     let bbox_width = right - left;
@@ -99,7 +105,8 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) ->
     let mut num_nodes: u64 = 0;
     for node in node_reader {
         if let (Some(lat), Some(lon)) = (node.lat, node.lon) {
-            if lat > top || lat < bottom || lon > right || lon < left {
+            // FIXME should be able to do non-equals but it fails for point at south pole
+            if lat >= top || lat <= bottom || lon >= right || lon <= left {
                 continue;
             }
 
@@ -119,14 +126,18 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) ->
             }
 
             let pixel_idx = latlon_to_pixel_index(lat, lon, width, height, &bbox);
-            results.entry(frame_no).or_insert(HashSet::new()).insert(pixel_idx);
+            let curr_val = results.entry(frame_no).or_insert(HashMap::new()).entry(pixel_idx).or_insert(0);
+            if *curr_val < std::u16::MAX {
+                *curr_val += 1;
+            }
 
             num_nodes += 1;
-            if num_nodes % 10_000_000 == 0 {
-                println!("Done {} nodes", num_nodes);
+            if num_nodes % 50_000_000 == 0 {
+                println!("Done {} million points", num_nodes/1_000_000);
             }
         }
     }
+    println!("Done {} points", num_nodes);
     let num_frames = last_frame_no - first_frame_no + 1;
     println!("There are {} frames, which is {} sec", num_frames, num_frames as f32/30.);
 
@@ -148,9 +159,9 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) ->
 fn write_frames(frames: Frames, filename: &str) {
     let mut file = BufWriter::new(fs::File::create(&filename).unwrap());
     for (frame_no, pixels) in frames.into_iter() {
-        write!(file, "{},", frame_no).unwrap();
+        write!(file, "{}", frame_no).unwrap();
         for p in pixels {
-            write!(file, "{},", p).unwrap();
+            write!(file, ",{},{}", p.0, p.1).unwrap();
         }
         write!(file, "\n").unwrap()
     }
@@ -162,9 +173,8 @@ fn read_frames(filename: &str) -> Frames {
 
     for line in file.lines() {
         let line = line.unwrap();
-        let mut nums: Vec<u32> = line.split(",").filter_map(|s| s.parse().ok()).collect();
-        let frame_no = nums.remove(0);
-        let pixels = nums;
+        let frame_no = line.split(",").nth(0).unwrap().parse().unwrap();
+        let pixels: Vec<(u32, u16)> = line.split(",").skip(1).collect::<Vec<_>>().chunks(2).map(|pair| (pair[0].parse().unwrap(), pair[1].parse().unwrap())).collect();
         results.push((frame_no, pixels))
     }
 
@@ -173,19 +183,19 @@ fn read_frames(filename: &str) -> Frames {
 
 fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f32; 4]) -> u32 {
     let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
-    assert!(top > bottom);
     let bbox_width = right - left;
     let bbox_height = top - bottom;
-    let lat = top - lat;
-    let lon = lon - left;
+
+    let lat0 = top - lat;
+    let lon0 = lon - left;
 
 
-    let x = ((lon/bbox_width)*(width as f32)) as u32;
-    let y = ((lat/bbox_height)*(height as f32)) as u32;
+    let x = ((lon0/bbox_width)*(width as f32)) as u32;
+    let y = ((lat0/bbox_height)*(height as f32)) as u32;
 
     let i = y * width + x;
 
-    assert!(i < width*height, "{}L{}, lat = {} lon = {} width = {} height = {} bbox = {:?} x = {} y = {} i = {}", file!(), line!(), lat, lon, width, height, bbox, x, y, i);
+    assert!(i < width*height, "{} L{}, lat = {} lon = {} width = {} height = {} bbox = {:?} x = {} y = {} i = {}", file!(), line!(), lat, lon, width, height, bbox, x, y, i);
 
     i
 }
@@ -199,7 +209,7 @@ fn create_equirectangular_map(frames: Frames, output_image_filename: &str, heigh
     let width = ((bbox_width / bbox_height) * (height as f32)) as u32;
 
     // FIXME change width/height to u16?
-    let mut encoder = gif::Encoder::new(&mut output_file, width as u16, height as u16, &[]).expect("Couldn't create encoder");
+    let mut encoder = gif::Encoder::new(&mut output_file, width as u16, height as u16, &colour_ramp.palette()).expect("Couldn't create encoder");
     encoder.set(gif::Repeat::Infinite).expect("Couldn't get inf repeat");
 
     // TODO have a global palette
@@ -207,21 +217,28 @@ fn create_equirectangular_map(frames: Frames, output_image_filename: &str, heigh
     let mut image = vec![None; (width*height) as usize];
 
     for (frame_no, pixels) in frames.into_iter() {
-        for i in pixels {
+
+        for i in 0..image.len() {
+            if image[i].is_some() && image[i].unwrap() > 0 {
+                image[i] = image[i].map(|x| x-1);
+            }
+        }
+
+        for (i, magnitude) in pixels {
             // FIXME sometimes the value is invalid
             //assert!(i < width*height, "{} L{}, width = {} height = {} i = {}", file!(), line!(), width, height, i);
             if i < width*height {
-                image[i as usize] = Some(frame_no);
+                image[i as usize] = Some(magnitude as u32);
             }
         }
 
         let mut pixels = Vec::with_capacity(image.len() * 4);
         for p in image.iter().cloned() {
-            let index = colour_ramp.index_for_age(p.map(|t| frame_no - t));
+            let index = colour_ramp.index_for_magnitude(p);
             pixels.push(index);
         }
 
-        let mut frame = gif::Frame::from_palette_pixels(width as u16, height as u16, &colour_ramp.palette(), pixels.as_mut_slice());
+        let mut frame = gif::Frame::from_indexed_pixels(width as u16, height as u16, pixels.as_mut_slice());
         // 30 fps, and delay is in units of 10ms.
         frame.delay = 100 / 30;
 
