@@ -156,8 +156,24 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) ->
     sorted_results
 }
 
-fn write_frames(frames: Frames, filename: &str) {
+fn write_frames(frames: Frames, filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) {
+    let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
+    let bbox_width = right - left;
+    let bbox_height = top - bottom;
+    let width = ((bbox_width / bbox_height) * (height as f32)) as u32;
+
     let mut file = BufWriter::new(fs::File::create(&filename).unwrap());
+
+    writeln!(file, "metadata version {}", env!("CARGO_PKG_VERSION")).expect("Couldn't write metadata");
+    writeln!(file, "metadata height {}", height).expect("Couldn't write metadata");
+    writeln!(file, "metadata width {}", width).expect("Couldn't write metadata");
+    writeln!(file, "metadata sec_per_frame {}", sec_per_frame).expect("Couldn't write metadata");
+    writeln!(file, "metadata left {}", left).expect("Couldn't write metadata");
+    writeln!(file, "metadata bottom {}", bottom).expect("Couldn't write metadata");
+    writeln!(file, "metadata right {}", right).expect("Couldn't write metadata");
+    writeln!(file, "metadata top {}", top).expect("Couldn't write metadata");
+    writeln!(file, "").expect("Couldn't write metadata");
+
     for (frame_no, pixels) in frames.into_iter() {
         write!(file, "{}", frame_no).unwrap();
         for p in pixels {
@@ -171,8 +187,9 @@ fn read_frames(filename: &str) -> Frames {
     let file = BufReader::new(fs::File::open(&filename).unwrap());
     let mut results = Frames::new();
 
-    for line in file.lines() {
-        let line = line.unwrap();
+    //let metadata: Vec<(String, String)> = file.lines().filter_map(|x| x.ok()).take_while(|x| x.len() > 0).map(|x| { let words: Vec<_> = x.split(" ").skip(1).take(2).collect(); (words[0].clone(), words[1].clone())}).collect();
+
+    for line in file.lines().filter_map(|x| x.ok()).skip_while(|x| x.starts_with("metadata ") || x.len() == 0) {
         let frame_no = line.split(",").nth(0).unwrap().parse().unwrap();
         let pixels: Vec<(u32, u16)> = line.split(",").skip(1).collect::<Vec<_>>().chunks(2).map(|pair| (pair[0].parse().unwrap(), pair[1].parse().unwrap())).collect();
         results.push((frame_no, pixels))
@@ -293,7 +310,7 @@ fn main() {
 
     if matches.is_present("save-intermediate") {
         println!("Saving frame details to {}", output_filename);
-        write_frames(frames, &output_filename);
+        write_frames(frames, &output_filename, height, sec_per_frame, &bbox);
     } else {
         let colour_ramp = ColourRamp::new_from_filename(matches.value_of("colour_ramp").unwrap());
         println!("Creating image {}", output_filename);
