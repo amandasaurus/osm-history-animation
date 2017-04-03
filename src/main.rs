@@ -2,6 +2,7 @@ extern crate osmio;
 extern crate image;
 extern crate gif;
 extern crate clap;
+extern crate orthoproj;
 
 use clap::{Arg, App, AppSettings};
 
@@ -78,7 +79,7 @@ impl ColourRamp {
     }
 }
 
-fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4], pixel_func: &Fn(f32, f32) -> Option<u32>) -> Frames {
+fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4], pixel_func: Box<Fn(f32, f32) -> Option<u32>>) -> Frames {
     let file = BufReader::new(fs::File::open(&filename).unwrap());
     let mut node_reader = PBFReader::new(file);
     let node_reader = node_reader.nodes();
@@ -148,7 +149,7 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4], pi
     sorted_results
 }
 
-fn write_frames(frames: Frames, filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) {
+fn write_frames(frames: Frames, filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4], projection: &Projection) {
     let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
     let bbox_width = right - left;
     let bbox_height = top - bottom;
@@ -164,6 +165,14 @@ fn write_frames(frames: Frames, filename: &str, height: u32, sec_per_frame: u32,
     writeln!(file, "metadata bottom {}", bottom).expect("Couldn't write metadata");
     writeln!(file, "metadata right {}", right).expect("Couldn't write metadata");
     writeln!(file, "metadata top {}", top).expect("Couldn't write metadata");
+    match projection {
+        Projection::OrthoProj => {
+            writeln!(file, "metadata projection ortho", top).expect("Couldn't write metadata");
+        },
+        Projection::Equirect => {
+            writeln!(file, "metadata projection equirect", top).expect("Couldn't write metadata");
+        },
+    }
     writeln!(file, "").expect("Couldn't write metadata");
 
     for (frame_no, pixels) in frames.into_iter() {
@@ -302,7 +311,7 @@ fn main() {
         }
     };
 
-    let centre = ((bbox[0] + bbox[2])/2., (bbox[1] - bbox[3])/2.);
+    let centre = ((bbox[1] + bbox[3])/2., (bbox[0] - bbox[2])/2.);
 
     let projection = if matches.is_present("ortho") {
         Projection::Ortho
@@ -317,9 +326,12 @@ fn main() {
     let bbox_height = top - bottom;
     let width = ((bbox_width / bbox_height) * (height as f32)) as u32;
 
-    let pixel_func = match projection {
-        Projection::Ortho => { unreachable!() },
-        Projection::Equirect => { |lat, lon| latlon_to_pixel_index(lat, lon, width, height, &bbox) },
+    let pixel_func: Box<Fn(f32, f32) -> Option<u32>> = match projection {
+        Projection::Ortho => {
+            let ortho = orthoproj::OrthoProj::new(width, centre.0, centre.1, false);
+            Box::new(move |lat, lon| { ortho.xy_for_pos(lat, lon).map(|(x, y)| x*width + y) })
+        },
+        Projection::Equirect => { Box::new(move |lat, lon| latlon_to_pixel_index(lat, lon, width, height, &bbox)) },
     };
 
     let frames = if matches.is_present("load-intermediate") {
@@ -327,12 +339,12 @@ fn main() {
         read_frames(&input_filename)
     } else {
         println!("Reading PBF file {}", input_filename);
-        read_pbf(&input_filename, height, sec_per_frame, &bbox, &pixel_func)
+        read_pbf(&input_filename, height, sec_per_frame, &bbox, pixel_func)
     };
 
     if matches.is_present("save-intermediate") {
         println!("Saving frame details to {}", output_filename);
-        write_frames(frames, &output_filename, height, sec_per_frame, &bbox);
+        write_frames(frames, &output_filename, height, sec_per_frame, &bbox, &projection);
     } else {
         let colour_ramp = ColourRamp::new_from_filename(matches.value_of("colour_ramp").unwrap());
         println!("Creating image {}", output_filename);
