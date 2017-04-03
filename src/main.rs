@@ -74,10 +74,6 @@ impl ColourRamp {
                     (255 - magnitude) as u8
                 }
             },
-            //Some(age) => match self.steps.iter().position(|&(x, _)| x == age) {
-            //    None => 0,
-            //    Some(i) => (i+1) as u8,
-            //}
         }
     }
 }
