@@ -82,7 +82,7 @@ impl ColourRamp {
     }
 }
 
-fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) -> Frames {
+fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4], pixel_func: &Fn(f32, f32) -> Option<u32>) -> Frames {
     let file = BufReader::new(fs::File::open(&filename).unwrap());
     let mut node_reader = PBFReader::new(file);
     let node_reader = node_reader.nodes();
@@ -97,18 +97,12 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) ->
     // 1st April 2005, midnight GMT. We presume no OSM editing before then.
     let osm_epoch = 1109635200;
 
-    // FIXME use a btreemap?
-    
     let mut first_frame_no = std::u32::MAX;
     let mut last_frame_no = 0;
 
     let mut num_nodes: u64 = 0;
     for node in node_reader {
         if let (Some(lat), Some(lon)) = (node.lat, node.lon) {
-            // FIXME should be able to do non-equals but it fails for point at south pole
-            if lat >= top || lat <= bottom || lon >= right || lon <= left {
-                continue;
-            }
 
             let timestamp = node.timestamp.to_epoch_number() as u64;
             if timestamp < osm_epoch {
@@ -125,10 +119,12 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4]) ->
                 last_frame_no = frame_no;
             }
 
-            let pixel_idx = latlon_to_pixel_index(lat, lon, width, height, &bbox);
-            let curr_val = results.entry(frame_no).or_insert(HashMap::new()).entry(pixel_idx).or_insert(0);
-            if *curr_val < std::u16::MAX {
-                *curr_val += 1;
+            //let pixel_idx = latlon_to_pixel_index(lat, lon, width, height, &bbox);
+            if let Some(pixel_idx) = pixel_func(lat, lon) {
+                let curr_val = results.entry(frame_no).or_insert(HashMap::new()).entry(pixel_idx).or_insert(0);
+                if *curr_val < std::u16::MAX {
+                    *curr_val += 1;
+                }
             }
 
             num_nodes += 1;
@@ -198,10 +194,15 @@ fn read_frames(filename: &str) -> Frames {
     results
 }
 
-fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f32; 4]) -> u32 {
+fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f32; 4]) -> Option<u32> {
     let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
     let bbox_width = right - left;
     let bbox_height = top - bottom;
+
+    // FIXME should be able to do non-equals but it fails for point at south pole
+    if lat >= top || lat <= bottom || lon >= right || lon <= left {
+        return None;
+    }
 
     let lat0 = top - lat;
     let lon0 = lon - left;
@@ -214,7 +215,7 @@ fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f3
 
     assert!(i < width*height, "{} L{}, lat = {} lon = {} width = {} height = {} bbox = {:?} x = {} y = {} i = {}", file!(), line!(), lat, lon, width, height, bbox, x, y, i);
 
-    i
+    Some(i)
 }
 
 fn create_gif(frames: Frames, output_image_filename: &str, height: u32, bbox: &[f32; 4], colour_ramp: &ColourRamp) {
@@ -270,6 +271,8 @@ fn create_gif(frames: Frames, output_image_filename: &str, height: u32, bbox: &[
 
 }
 
+enum Projection { Ortho, Equirect, }
+
 fn main() {
     let matches = App::new("osm-history-animation")
                           .arg(Arg::with_name("input").long("input").short("i")
@@ -285,6 +288,8 @@ fn main() {
                           .arg(Arg::with_name("save-intermediate").long("save-intermediate"))
                           .arg(Arg::with_name("load-intermediate").long("load-intermediate"))
                           .arg(Arg::with_name("bbox").long("bbox").takes_value(true).short("b"))
+                          .arg(Arg::with_name("ortho").long("ortho"))
+                          .arg(Arg::with_name("equirect").long("equirect"))
                           .setting(AppSettings::AllowLeadingHyphen)
                           .get_matches();
 
@@ -301,12 +306,32 @@ fn main() {
         }
     };
 
+    let centre = ((bbox[0] + bbox[2])/2., (bbox[1] - bbox[3])/2.);
+
+    let projection = if matches.is_present("ortho") {
+        Projection::Ortho
+    } else if matches.is_present("equirect") {
+        Projection::Equirect
+    } else {
+        Projection::Equirect
+    };
+
+    let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
+    let bbox_width = right - left;
+    let bbox_height = top - bottom;
+    let width = ((bbox_width / bbox_height) * (height as f32)) as u32;
+
+    let pixel_func = match projection {
+        Projection::Ortho => { unreachable!() },
+        Projection::Equirect => { |lat, lon| latlon_to_pixel_index(lat, lon, width, height, &bbox) },
+    };
+
     let frames = if matches.is_present("load-intermediate") {
         println!("Reading frames from {}", input_filename);
         read_frames(&input_filename)
     } else {
         println!("Reading PBF file {}", input_filename);
-        read_pbf(&input_filename, height, sec_per_frame, &bbox)
+        read_pbf(&input_filename, height, sec_per_frame, &bbox, &pixel_func)
     };
 
     if matches.is_present("save-intermediate") {
