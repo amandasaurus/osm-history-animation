@@ -166,11 +166,11 @@ fn write_frames(frames: Frames, filename: &str, height: u32, sec_per_frame: u32,
     writeln!(file, "metadata right {}", right).expect("Couldn't write metadata");
     writeln!(file, "metadata top {}", top).expect("Couldn't write metadata");
     match projection {
-        Projection::OrthoProj => {
-            writeln!(file, "metadata projection ortho", top).expect("Couldn't write metadata");
+        &Projection::Ortho => {
+            writeln!(file, "metadata projection ortho").expect("Couldn't write metadata");
         },
-        Projection::Equirect => {
-            writeln!(file, "metadata projection equirect", top).expect("Couldn't write metadata");
+        &Projection::Equirect => {
+            writeln!(file, "metadata projection equirect").expect("Couldn't write metadata");
         },
     }
     writeln!(file, "").expect("Couldn't write metadata");
