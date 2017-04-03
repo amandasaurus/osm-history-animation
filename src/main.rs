@@ -273,7 +273,7 @@ fn main() {
     let input_filename = matches.value_of("input").unwrap();
     let output_filename = matches.value_of("output").unwrap();
     let height: u32 = matches.value_of("height").unwrap().parse().unwrap();
-    let frames_per_sec: u32 = matches.value_of("spf").unwrap().parse().unwrap();
+    let sec_per_frame: u32 = matches.value_of("spf").unwrap().parse().unwrap();
 
     let bbox = match matches.value_of("bbox") {
         None => [-180., -90., 180., 90.],
@@ -288,7 +288,7 @@ fn main() {
         read_frames(&input_filename)
     } else {
         println!("Reading PBF file {}", input_filename);
-        read_pbf(&input_filename, height, frames_per_sec, &bbox)
+        read_pbf(&input_filename, height, sec_per_frame, &bbox)
     };
 
     if matches.is_present("save-intermediate") {
