@@ -79,17 +79,12 @@ impl ColourRamp {
     }
 }
 
-fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4], pixel_func: Box<Fn(f32, f32) -> Option<u32>>) -> Frames {
+fn read_pbf(filename: &str, sec_per_frame: u32, bbox: &[f32; 4], pixel_func: Box<Fn(f32, f32) -> Option<u32>>) -> Frames {
     let file = BufReader::new(fs::File::open(&filename).unwrap());
     let mut node_reader = PBFReader::new(file);
     let node_reader = node_reader.nodes();
     
     let mut results: HashMap<u32, HashMap<u32, u16>> = HashMap::new();
-
-    let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
-    let bbox_width = right - left;
-    let bbox_height = top - bottom;
-    let width = ((bbox_width / bbox_height) * (height as f32)) as u32;
 
     // 1st April 2005, midnight GMT. We presume no OSM editing before then.
     let osm_epoch = 1109635200;
@@ -98,7 +93,7 @@ fn read_pbf(filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4], pi
     let mut last_frame_no = 0;
 
     let mut num_nodes: u64 = 0;
-    for node in node_reader {
+    for node in node_reader.take(200_000_000) {
         if let (Some(lat), Some(lon)) = (node.lat, node.lon) {
 
             let timestamp = node.timestamp.to_epoch_number() as u64;
@@ -223,13 +218,8 @@ fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f3
     Some(i)
 }
 
-fn create_gif(frames: Frames, output_image_filename: &str, height: u32, bbox: &[f32; 4], colour_ramp: &ColourRamp) {
+fn create_gif(frames: Frames, output_image_filename: &str, height: u32, width: u32, colour_ramp: &ColourRamp) {
     let mut output_file = fs::File::create(output_image_filename).expect("Can't create image");
-
-    let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
-    let bbox_width = right - left;
-    let bbox_height = top - bottom;
-    let width = ((bbox_width / bbox_height) * (height as f32)) as u32;
 
     // FIXME change width/height to u16?
     let mut encoder = gif::Encoder::new(&mut output_file, width as u16, height as u16, &colour_ramp.palette()).expect("Couldn't create encoder");
@@ -293,8 +283,11 @@ fn main() {
                           .arg(Arg::with_name("save-intermediate").long("save-intermediate"))
                           .arg(Arg::with_name("load-intermediate").long("load-intermediate"))
                           .arg(Arg::with_name("bbox").long("bbox").takes_value(true).short("b"))
+                          .arg(Arg::with_name("centre").long("centre").takes_value(true).short("c"))
+                          // TODO add misspelling of "center"
                           .arg(Arg::with_name("ortho").long("ortho"))
                           .arg(Arg::with_name("equirect").long("equirect"))
+                          // TODO add conflicts, can't have --ortho and --equirect
                           .setting(AppSettings::AllowLeadingHyphen)
                           .get_matches();
 
@@ -311,7 +304,13 @@ fn main() {
         }
     };
 
-    let centre = ((bbox[1] + bbox[3])/2., (bbox[0] - bbox[2])/2.);
+    let centre = match matches.value_of("centre") {
+        None => [0., 0.],
+        Some(text) => {
+            let coords: Vec<f32> = text.split(",").map(|x| x.parse().unwrap() ).collect();
+            [coords[0], coords[1]]
+        }
+    };
 
     let projection = if matches.is_present("ortho") {
         Projection::Ortho
@@ -321,15 +320,21 @@ fn main() {
         Projection::Equirect
     };
 
-    let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
-    let bbox_width = right - left;
-    let bbox_height = top - bottom;
-    let width = ((bbox_width / bbox_height) * (height as f32)) as u32;
+    let width = match projection {
+        Projection::Ortho => { height },
+        Projection::Equirect => {
+            let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
+            let bbox_width = right - left;
+            let bbox_height = top - bottom;
+            ((bbox_width / bbox_height) * (height as f32)) as u32
+        }
+    };
 
     let pixel_func: Box<Fn(f32, f32) -> Option<u32>> = match projection {
         Projection::Ortho => {
-            let ortho = orthoproj::OrthoProj::new(width, centre.0, centre.1, false);
-            Box::new(move |lat, lon| { ortho.xy_for_pos(lat, lon).map(|(x, y)| x*width + y) })
+            let ortho = orthoproj::OrthoProj::new(width, centre[0], centre[1], false);
+            // FIXME think I have the y*width + x wrong....
+            Box::new(move |lat, lon| { ortho.xy_for_pos(lat, lon).map(|(x, y)| y*width + x) })
         },
         Projection::Equirect => { Box::new(move |lat, lon| latlon_to_pixel_index(lat, lon, width, height, &bbox)) },
     };
@@ -339,7 +344,7 @@ fn main() {
         read_frames(&input_filename)
     } else {
         println!("Reading PBF file {}", input_filename);
-        read_pbf(&input_filename, height, sec_per_frame, &bbox, pixel_func)
+        read_pbf(&input_filename, sec_per_frame, &bbox, pixel_func)
     };
 
     if matches.is_present("save-intermediate") {
@@ -348,7 +353,7 @@ fn main() {
     } else {
         let colour_ramp = ColourRamp::new_from_filename(matches.value_of("colour_ramp").unwrap());
         println!("Creating image {}", output_filename);
-        create_gif(frames, &output_filename, height, &bbox, &colour_ramp);
+        create_gif(frames, &output_filename, height, width, &colour_ramp);
     }
     println!("\nFinished");
 }
