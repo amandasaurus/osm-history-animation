@@ -236,8 +236,8 @@ fn create_gif(frames: Frames, output_image_filename: &str, height: u32, bbox: &[
     for (frame_no, pixels) in frames.into_iter() {
 
         for i in 0..image.len() {
-            if image[i].is_some() && image[i].unwrap() > 0 {
-                image[i] = image[i].map(|x| (x as f32*0.9) as u32);
+            if image[i].is_some() && image[i].unwrap() > 0. {
+                image[i] = image[i].map(|x| x*0.95);
             }
         }
 
@@ -245,14 +245,14 @@ fn create_gif(frames: Frames, output_image_filename: &str, height: u32, bbox: &[
             // FIXME sometimes the value is invalid
             //assert!(i < width*height, "{} L{}, width = {} height = {} i = {}", file!(), line!(), width, height, i);
             if i < width*height {
-                let new_value: u32 = image[i as usize].unwrap_or(0) + magnitude as u32;
+                let new_value= image[i as usize].unwrap_or(0f32) + (magnitude as f32);
                 image[i as usize] = Some(new_value);
             }
         }
 
         let mut pixels = Vec::with_capacity(image.len() * 4);
         for p in image.iter().cloned() {
-            let index = colour_ramp.index_for_magnitude(p);
+            let index = colour_ramp.index_for_magnitude(p.map(|x| x.round() as u32));
             pixels.push(index);
         }
 
