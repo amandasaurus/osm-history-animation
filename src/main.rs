@@ -255,7 +255,7 @@ fn create_equirectangular_map(frames: Frames, output_image_filename: &str, heigh
             pixels.push(index);
         }
 
-        let mut frame = gif::Frame::from_indexed_pixels(width as u16, height as u16, pixels.as_mut_slice());
+        let mut frame = gif::Frame::from_indexed_pixels(width as u16, height as u16, pixels.as_mut_slice(), None);
         // 30 fps, and delay is in units of 10ms.
         frame.delay = 100 / 30;
 
