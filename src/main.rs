@@ -237,7 +237,7 @@ fn create_equirectangular_map(frames: Frames, output_image_filename: &str, heigh
 
         for i in 0..image.len() {
             if image[i].is_some() && image[i].unwrap() > 0 {
-                image[i] = image[i].map(|x| x-1);
+                image[i] = image[i].map(|x| (x as f32*0.9) as u32);
             }
         }
 
