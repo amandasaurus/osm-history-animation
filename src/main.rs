@@ -146,22 +146,15 @@ fn read_pbf(filename: &str, sec_per_frame: u32, pixel_func: Box<Fn(f32, f32) -> 
     sorted_results
 }
 
-fn write_frames(frames: Frames, filename: &str, height: u32, sec_per_frame: u32, bbox: &[f32; 4], projection: &Projection) {
-    let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
-    let bbox_width = right - left;
-    let bbox_height = top - bottom;
-    let width = ((bbox_width / bbox_height) * (height as f32)) as u32;
-
+fn write_frames(frames: Frames, filename: &str, height: u32, width: u32, centre: &[f32; 2], sec_per_frame: u32, bbox: &[f32; 4], projection: &Projection) {
     let mut file = BufWriter::new(fs::File::create(&filename).unwrap());
 
     writeln!(file, "metadata version {}", env!("CARGO_PKG_VERSION")).expect("Couldn't write metadata");
     writeln!(file, "metadata height {}", height).expect("Couldn't write metadata");
     writeln!(file, "metadata width {}", width).expect("Couldn't write metadata");
     writeln!(file, "metadata sec_per_frame {}", sec_per_frame).expect("Couldn't write metadata");
-    writeln!(file, "metadata left {}", left).expect("Couldn't write metadata");
-    writeln!(file, "metadata bottom {}", bottom).expect("Couldn't write metadata");
-    writeln!(file, "metadata right {}", right).expect("Couldn't write metadata");
-    writeln!(file, "metadata top {}", top).expect("Couldn't write metadata");
+    writeln!(file, "metadata bbox {},{},{},{}", bbox[0], bbox[1], bbox[2], bbox[3]).expect("Couldn't write metadata");
+    writeln!(file, "metadata centre {},{}", centre[0], centre[1]).expect("Couldn't write metadata");
     match projection {
         &Projection::Ortho => {
             writeln!(file, "metadata projection ortho").expect("Couldn't write metadata");
@@ -369,7 +362,7 @@ fn main() {
 
     if matches.is_present("save-intermediate") {
         println!("Saving frame details to {}", output_filename);
-        write_frames(frames, &output_filename, height, sec_per_frame, &bbox, &projection);
+        write_frames(frames, &output_filename, height, width, &centre, sec_per_frame, &bbox, &projection);
     } else {
         let colour_ramp = ColourRamp::new_from_filename(matches.value_of("colour_ramp").unwrap());
         println!("Creating image {}", output_filename);
