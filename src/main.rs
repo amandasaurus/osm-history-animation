@@ -245,7 +245,8 @@ fn create_gif(frames: Frames, output_image_filename: &str, height: u32, bbox: &[
             // FIXME sometimes the value is invalid
             //assert!(i < width*height, "{} L{}, width = {} height = {} i = {}", file!(), line!(), width, height, i);
             if i < width*height {
-                image[i as usize] = Some(magnitude as u32);
+                let new_value: u32 = image[i as usize].unwrap_or(0) + magnitude as u32;
+                image[i as usize] = Some(new_value);
             }
         }
 
