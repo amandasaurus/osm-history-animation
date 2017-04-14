@@ -79,7 +79,7 @@ impl ColourRamp {
     }
 }
 
-fn read_pbf(filename: &str, sec_per_frame: u32, bbox: &[f32; 4], pixel_func: Box<Fn(f32, f32) -> Option<u32>>) -> Frames {
+fn read_pbf(filename: &str, sec_per_frame: u32, pixel_func: Box<Fn(f32, f32) -> Option<u32>>) -> Frames {
     let file = BufReader::new(fs::File::open(&filename).unwrap());
     let mut node_reader = PBFReader::new(file);
     let node_reader = node_reader.nodes();
@@ -93,7 +93,7 @@ fn read_pbf(filename: &str, sec_per_frame: u32, bbox: &[f32; 4], pixel_func: Box
     let mut last_frame_no = 0;
 
     let mut num_nodes: u64 = 0;
-    for node in node_reader.take(200_000_000) {
+    for node in node_reader {
         if let (Some(lat), Some(lon)) = (node.lat, node.lon) {
 
             let timestamp = node.timestamp.to_epoch_number() as u64;
@@ -344,7 +344,7 @@ fn main() {
         read_frames(&input_filename)
     } else {
         println!("Reading PBF file {}", input_filename);
-        read_pbf(&input_filename, sec_per_frame, &bbox, pixel_func)
+        read_pbf(&input_filename, sec_per_frame, pixel_func)
     };
 
     if matches.is_present("save-intermediate") {

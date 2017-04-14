@@ -1,11 +1,19 @@
 [package]
-name = "osm-history-animation"
-version = "0.1.0"
 authors = ["Rory McCann <rory@technomancy.org>"]
+license = "AGPL-3.0"
+name = "osm-history-animation"
+repository = "https://github.com/rory/osm-history-animation"
+version = "0.2.0"
 
 [dependencies]
-osmio = { git = "https://github.com/rory/osmio" }
-image = "0.12"
-gif = { git = "https://github.com/rory/image-gif" }
 clap = "2"
-orthoproj = { path = "../orthoproj/" }
+image = "0.12"
+
+[dependencies.gif]
+git = "https://github.com/rory/image-gif"
+
+[dependencies.orthoproj]
+git = "https://github.com/rory/orthoproj-rs"
+
+[dependencies.osmio]
+git = "https://github.com/rory/osmio"
