@@ -217,7 +217,7 @@ fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f3
     i
 }
 
-fn create_equirectangular_map(frames: Frames, output_image_filename: &str, height: u32, bbox: &[f32; 4], colour_ramp: &ColourRamp) {
+fn create_gif(frames: Frames, output_image_filename: &str, height: u32, bbox: &[f32; 4], colour_ramp: &ColourRamp) {
     let mut output_file = fs::File::create(output_image_filename).expect("Can't create image");
 
     let left = bbox[0]; let bottom = bbox[1]; let right = bbox[2]; let top = bbox[3];
@@ -314,7 +314,7 @@ fn main() {
     } else {
         let colour_ramp = ColourRamp::new_from_filename(matches.value_of("colour_ramp").unwrap());
         println!("Creating image {}", output_filename);
-        create_equirectangular_map(frames, &output_filename, height, &bbox, &colour_ramp);
+        create_gif(frames, &output_filename, height, &bbox, &colour_ramp);
     }
     println!("\nFinished");
 }
