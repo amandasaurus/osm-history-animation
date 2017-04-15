@@ -305,9 +305,12 @@ fn main() {
     let sec_per_frame: u32 = match matches.value_of("spf") { None => metadata["sec_per_frame"].parse().unwrap(), Some(t) => t.parse().unwrap() };
 
     let bbox = match matches.value_of("bbox") {
-        None => match metadata.get("top") {
+        None => match metadata.get("bbox") {
             None => [-180., -90., 180., 90.],
-            Some(top) => [metadata["left"].parse().unwrap(), metadata["bottom"].parse().unwrap(), metadata["right"].parse().unwrap(), top.parse().unwrap()],
+            Some(text) => {
+                let coords: Vec<f32> = text.split(",").map(|x| x.parse().unwrap() ).collect();
+                [coords[0], coords[1], coords[2], coords[3]]
+            }
         },
         Some(text) => {
             let coords: Vec<f32> = text.split(",").map(|x| x.parse().unwrap() ).collect();
@@ -316,7 +319,13 @@ fn main() {
     };
 
     let centre = match matches.value_of("centre") {
-        None => [0., 0.],
+        None => match metadata.get("centre") {
+            None => [0., 0.],
+            Some(c) => {
+                let c: Vec<f32> = c.split(",").map(|x| x.parse().unwrap() ).collect();
+                [c[0], c[1]]
+            },
+        },
         Some(text) => {
             let coords: Vec<f32> = text.split(",").map(|x| x.parse().unwrap() ).collect();
             [coords[0], coords[1]]
