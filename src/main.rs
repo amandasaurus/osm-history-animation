@@ -226,8 +226,6 @@ fn create_gif(frames: Frames, output_image_filename: &str, height: u32, width: u
     let mut encoder = gif::Encoder::new(&mut output_file, width as u16, height as u16, &colour_ramp.palette()).expect("Couldn't create encoder");
     encoder.set(gif::Repeat::Infinite).expect("Couldn't get inf repeat");
 
-    // TODO have a global palette
-
     let mut image = vec![None; (width*height) as usize];
 
     for (frame_no, pixels) in frames.into_iter() {
