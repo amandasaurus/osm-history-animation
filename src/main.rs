@@ -126,11 +126,11 @@ fn read_pbf(filename: &str, sec_per_frame: u32, pixel_func: Box<Fn(f32, f32) -> 
 
             num_nodes += 1;
             if num_nodes % 50_000_000 == 0 {
-                println!("Done {} million points", num_nodes/1_000_000);
+                println!("Read {} million points", num_nodes/1_000_000);
             }
         }
     }
-    println!("Done {} points", num_nodes);
+    println!("Read {} points", num_nodes);
     let num_frames = last_frame_no - first_frame_no + 1;
     println!("There are {} frames, which is {} sec", num_frames, num_frames as f32/30.);
 
@@ -440,7 +440,6 @@ fn main() {
         println!("Reading PBF file {}", input_filename);
         read_pbf(&input_filename, sec_per_frame, pixel_func)
     };
-
 
 
     if matches.is_present("save-intermediate") {
