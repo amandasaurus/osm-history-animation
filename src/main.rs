@@ -11,6 +11,9 @@ use osmio::OSMReader;
 use osmio::pbf::PBFReader;
 use std::io::{Read, Write, BufReader, BufRead, BufWriter};
 use std::collections::HashMap;
+use std::cmp::Ordering;
+
+use image::ImageBuffer;
 
 use gif::SetParameter;
 
@@ -219,6 +222,27 @@ fn latlon_to_pixel_index(lat: f32, lon: f32, width: u32, height: u32, bbox: &[f3
     Some(i)
 }
 
+fn get_max_value(image: &Vec<Option<f32>>) -> f32 {
+    let mut max = 0.;
+    for pixel in image.iter().filter_map(|&x| x) {
+        max = match pixel.partial_cmp(&max) {
+            Some(Ordering::Greater) => pixel,
+            _ => max,
+        };
+    }
+
+    max
+}
+
+fn decay_image(image: &mut Vec<Option<f32>>) {
+    for i in 0..image.len() {
+        if image[i].is_some() && image[i].unwrap() > 0. {
+            image[i] = image[i].map(|x| x*0.99);
+        }
+    }
+}
+
+
 fn create_gif(frames: Frames, output_image_filename: &str, height: u32, width: u32, colour_ramp: &ColourRamp) {
     let mut output_file = fs::File::create(output_image_filename).expect("Can't create image");
 
@@ -230,11 +254,7 @@ fn create_gif(frames: Frames, output_image_filename: &str, height: u32, width: u
 
     for (frame_no, pixels) in frames.into_iter() {
 
-        for i in 0..image.len() {
-            if image[i].is_some() && image[i].unwrap() > 0. {
-                image[i] = image[i].map(|x| x*0.95);
-            }
-        }
+        decay_image(&mut image);
 
         for (i, magnitude) in pixels {
             // FIXME sometimes the value is invalid
@@ -245,10 +265,14 @@ fn create_gif(frames: Frames, output_image_filename: &str, height: u32, width: u
             }
         }
 
-        let mut pixels = Vec::with_capacity(image.len() * 4);
+        let max = get_max_value(&image);
+
+        let mut pixels: Vec<u8> = Vec::with_capacity(image.len() * 4);
         for p in image.iter().cloned() {
-            let index = colour_ramp.index_for_magnitude(p.map(|x| x.round() as u32));
-            pixels.push(index);
+            pixels.push(match p {
+                None => 0,
+                Some(x) => { (255f32 * (x/max)).round() as u8 },
+            });
         }
 
         let mut frame = gif::Frame::from_indexed_pixels(width as u16, height as u16, pixels.as_mut_slice(), None);
@@ -264,6 +288,56 @@ fn create_gif(frames: Frames, output_image_filename: &str, height: u32, width: u
     }
 
 }
+
+fn create_frames(frames: Frames, output_image_filename: &str, height: u32, width: u32) {
+
+    let mut image = vec![None; (width*height) as usize];
+
+    for (frame_no, pixels) in frames.into_iter() {
+
+        decay_image(&mut image);
+
+        for (i, magnitude) in pixels {
+            // FIXME sometimes the value is invalid
+            //assert!(i < width*height, "{} L{}, width = {} height = {} i = {}", file!(), line!(), width, height, i);
+            if i < width*height {
+                let new_value= image[i as usize].unwrap_or(0f32) + (magnitude as f32);
+                image[i as usize] = Some(new_value);
+            }
+        }
+
+        let max = get_max_value(&image);
+
+        let img = ImageBuffer::from_fn(width, height, |x, y| {
+            let p = (y*width + x) as usize;
+            let red = match image[p] { None => 0, Some(val) => { (255f32 * (val/max)).round() as u8 }, };
+            image::Rgb([red, red, red])
+        });
+
+
+        let mut pixels: Vec<u8> = Vec::with_capacity(image.len() * 4);
+        for p in image.iter().cloned() {
+            pixels.push(match p {
+                None => 0,
+                Some(x) => { (255f32 * (x/max)).round() as u8 },
+            });
+        }
+
+
+        let ref mut fout = fs::File::create(&format!("{}{:06}.png", output_image_filename, frame_no)).unwrap();
+        image::ImageRgb8(img).save(fout, image::PNG).expect("Couldn't save image");
+
+
+        if frame_no % 30 == 0 {
+            println!("Wrote frame {}", frame_no);
+        }
+
+    }
+    println!("Finished. You can convert this to a video with this command:\n\navconv -framerate 30  -i {}%06d.png output.mp4\n\n", output_image_filename);
+
+
+}
+
 
 enum Projection { Ortho, Equirect, }
 
@@ -282,11 +356,13 @@ fn main() {
                           .arg(Arg::with_name("save-intermediate").long("save-intermediate"))
                           .arg(Arg::with_name("load-intermediate").long("load-intermediate"))
                           .arg(Arg::with_name("bbox").long("bbox").takes_value(true).short("b"))
-                          .arg(Arg::with_name("centre").long("centre").takes_value(true).short("c"))
                           // TODO add misspelling of "center"
+                          .arg(Arg::with_name("centre").long("centre").takes_value(true).short("c"))
+                          // TODO add conflicts, can't have --ortho and --equirect
                           .arg(Arg::with_name("ortho").long("ortho"))
                           .arg(Arg::with_name("equirect").long("equirect"))
-                          // TODO add conflicts, can't have --ortho and --equirect
+                          .arg(Arg::with_name("gif").long("gif"))
+                          .arg(Arg::with_name("frames").long("frames"))
                           .setting(AppSettings::AllowLeadingHyphen)
                           .get_matches();
 
@@ -372,8 +448,13 @@ fn main() {
         write_frames(frames, &output_filename, height, width, &centre, sec_per_frame, &bbox, &projection);
     } else {
         let colour_ramp = ColourRamp::new_from_filename(matches.value_of("colour_ramp").unwrap());
-        println!("Creating image {}", output_filename);
-        create_gif(frames, &output_filename, height, width, &colour_ramp);
+        if matches.is_present("frames") {
+            println!("Creating frames with prefix {}", output_filename);
+            create_frames(frames, &output_filename, height, width);
+        } else {
+            println!("Creating image {}", output_filename);
+            create_gif(frames, &output_filename, height, width, &colour_ramp);
+        }
     }
     println!("\nFinished");
 }
